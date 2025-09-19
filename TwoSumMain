@@ -1,8 +1,24 @@
 class TestMySolution:
+    """
+    Класс для тестирования.
+    """
+
     def __init__(self):
+        """
+        Инициализирует TestMySolution.
+        """
         pass
 
     def test(self, nums, target):
+        """
+        Проверяет корректность входных данных.
+            nums(list) - Список чисел для проверки
+            target(int) - Целевое число для проверки
+        Returns:
+            er1 - некорректные данные
+            er2 - недостаточно чисел
+            True - данные корректны
+        """
         if not isinstance(target, int):
             return 'er1'
         if not isinstance(nums, list):
@@ -14,6 +30,9 @@ class TestMySolution:
         return True
 
     def sum(self, nums, target):
+        """
+        Находит индексы двух чисел в списке nums, сумма которых равна target.
+        """
         y = self.test(nums, target)
         if y == True:
             for i in range(len(nums)):
@@ -24,5 +43,9 @@ class TestMySolution:
         else:
             return 'некорректные данные'
 
-print(TestMySolution().sum(['a', 'a', 'a'], 2))
-print(TestMySolution().sum([1, 1, 1], 2))
+
+if __name__ == "__main__":
+    solution = TestMySolution()
+
+    print(solution.sum(['a', 'a', 'a'], 2))  # некорректные данные
+    print(solution.sum([1, 1, 1], 2))  # (0, 1)
