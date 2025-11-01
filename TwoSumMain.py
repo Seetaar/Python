@@ -48,4 +48,4 @@ if __name__ == "__main__":
     solution = TestMySolution()
 
     print(solution.sum(['a', 'a', 'a'], 2))  # некорректные данные
-    print(solution.sum([1, 1, 1], 2))  # (0, 1)
+    print(solution.sum([1, 1, 1], 2))  # (0,1)
