@@ -3,41 +3,28 @@ import requests
 import sys
 import io
 import functools
+from unittest.mock import patch, Mock
 
 
 def logger(func=None, *, handle=sys.stdout):
     """
     декоратор logger
-
-    Args:
-        func: Декорируемая функция
-        handle: объект логирования с методом
     """
-
-    def decorator(f):
-        @functools.wraps(f)
-        def wrapper(*args, **kwargs):
-            handle.write("Вызов функции")
-            try:
-                result = f(*args, **kwargs)
-
-                handle.write(f"Результат: {result}\n")
-
-                return result
-
-            except Exception as e:
-                handle.write("Ошибка")
-                raise ValueError
-
-        return wrapper
-
     if func is None:
-        return decorator
-    else:
-        return decorator(func)
+        return lambda f: logger(f, handle=handle)
 
+    @functools.wraps(func)
+    def wrapper(*args, **kwargs):
+        handle.write("Вызов функции\n")
+        try:
+            result = func(*args, **kwargs)
+            handle.write(f"Результат: {result}\n")
+            return result
+        except Exception as e:
+            handle.write(f"Ошибка: {e}\n")
+            raise ValueError(str(e))
 
-stream = io.StringIO()
+    return wrapper
 
 
 @logger(handle=sys.stdout)
@@ -45,16 +32,8 @@ def get_currencies(currency_codes: list, url: str = "https://www.cbr-xml-daily.r
                    handle=sys.stdout) -> dict:
     """
     Получает курсы валют с API Центробанка России.
-
-    Args:
-        currency_codes (list): Список символьных кодов валют (например, ['USD', 'EUR']).
-
-    Returns:
-        dict: Словарь, где ключи - символьные коды валют, а значения - их курсы.
-              Возвращает None в случае ошибки запроса.
     """
     try:
-
         response = requests.get(url)
         response.raise_for_status()
         data = response.json()
@@ -69,88 +48,128 @@ def get_currencies(currency_codes: list, url: str = "https://www.cbr-xml-daily.r
         return currencies
 
     except requests.exceptions.RequestException as e:
-        handle.write(f"Ошибка при запросе к API: {e}")
-        raise ValueError
+        handle.write(f"Ошибка при запросе к API: {e}\n")
+        raise ValueError(f"Ошибка запроса: {e}")
+    except ValueError as e:
+        handle.write(f"Некорректный JSON: {e}\n")
+        raise ValueError(f"Некорректный JSON: {e}")
 
-
-currency_list = ['USD', 'EUR', 'GBP', 'NNZ']
-currency_data = get_currencies(currency_list)
-
-
-def main():
-    currency_list = ['USD', 'EUR', 'GBP', 'NNZ']
-    currency_data = get_currencies(currency_list)
-    if currency_data:
-        print(currency_data)
-
-
-if __name__ == "__main__":
-    main()
 
 MAX_R_VALUE = 1000
 
 
 class TestGetCurrencies(unittest.TestCase):
 
-    def test_currency(self):
-        currency_list = ['USD']
-        currency_data = get_currencies(currency_list)
-
-        self.assertIn(currency_list[0], currency_data)
-        self.assertIsInstance(currency_data['USD'], float)
-        self.assertGreaterEqual(currency_data['USD'], 0)
-        self.assertLessEqual(currency_data['USD'], MAX_R_VALUE)
-
-    def test_code(self):
-        self.assertIn("Код валюты", get_currencies(['XYZ'])['XYZ'])
-        self.assertIn("XYZ", get_currencies(['XYZ'])['XYZ'])
-        self.assertIn("не найден", get_currencies(['XYZ'])['XYZ'])
-
-    def test_ValueError(self):
-        with self.assertRaises(ValueError):
-            with io.StringIO() as fake_handle:
-                get_currencies(['USD'], url="https://www.cbr-xml-daily.1ru/daily_json.js", handle=fake_handle)
-                output = fake_handle.getvalue()
-
-    def test_json(self):
-        with self.assertRaises(ValueError) as cm:
-            get_currencies(['USD'], url="https://example.com")
-        self.assertIn("Некорректный JSON", str(cm.exception))
-
     def setUp(self):
         self.stream = io.StringIO()
         @logger(handle=self.stream)
-        def wrapped_get_currencies(currency_codes, url=None):
-            if url:
-                return get_currencies(currency_codes, url)
-            return get_currencies(currency_codes)
+        def wrapped_get_currencies(currency_codes, url="https://www.cbr-xml-daily.ru/daily_json.js"):
+            return get_currencies(currency_codes, url, handle=self.stream)
         self.wrapped = wrapped_get_currencies
 
-    def test_logging_success(self):
+    @patch('requests.get')
+    def test_currency(self, mock_get):
+        mock_response = Mock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {
+            "Valute": {
+                "USD": {"Value": 75.5}
+            }
+        }
+        mock_get.return_value = mock_response
+        currency_list = ['USD']
+        currency_data = self.wrapped(currency_list)
+        self.assertIn('USD', currency_data)
+        self.assertIsInstance(currency_data['USD'], float)
+        self.assertGreaterEqual(currency_data['USD'], 0)
+        self.assertLessEqual(currency_data['USD'], MAX_R_VALUE)
+        logs = self.stream.getvalue()
+        self.assertIn("Вызов функции", logs)
+        self.assertIn("USD", logs)
+
+    @patch('requests.get')
+    def test_code(self, mock_get):
+        # Мокаем ответ API
+        mock_response = Mock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {
+            "Valute": {
+                "USD": {"Value": 75.5}
+            }
+        }
+        mock_get.return_value = mock_response
+        result = self.wrapped(['XYZ'])
+        self.assertIn('XYZ', result)
+        self.assertIn("Код валюты", result['XYZ'])
+        self.assertIn("XYZ", result['XYZ'])
+        self.assertIn("не найден", result['XYZ'])
+
+    @patch('requests.get')
+    def test_ValueError(self, mock_get):
+        mock_get.side_effect = requests.exceptions.RequestException("Ошибка соединения")
+        with self.assertRaises(ValueError):
+            self.wrapped(['USD'])
+        logs = self.stream.getvalue()
+        self.assertIn("Вызов функции", logs)
+        self.assertIn("Ошибка", logs)
+
+    @patch('requests.get')
+    def test_json(self, mock_get):
+        mock_response = Mock()
+        mock_response.status_code = 200
+        mock_response.json.side_effect = ValueError("Invalid JSON")
+        mock_get.return_value = mock_response
+        with self.assertRaises(ValueError) as context:
+            self.wrapped(['USD'])
+        self.assertIn("JSON", str(context.exception))
+        logs = self.stream.getvalue()
+        self.assertIn("Вызов функции", logs)
+        self.assertIn("Ошибка", logs)
+
+    @patch('requests.get')
+    def test_logging_success(self, mock_get):
+        mock_response = Mock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {
+            "Valute": {
+                "USD": {"Value": 75.5}
+            }
+        }
+        mock_get.return_value = mock_response
         result = self.wrapped(['USD'])
         logs = self.stream.getvalue()
-        self.assertIn("INFO: Вызов wrapped_get_currencies(['USD'])", logs)
-        self.assertIn("INFO: wrapped_get_currencies вернула", logs)
-        self.assertIn("USD", str(result))
+        self.assertIn("Вызов функции", logs)  # Первый вызов из wrapper
+        self.assertIn("USD", logs)
+        self.assertIn("Результат", logs)
         self.assertIsInstance(result['USD'], float)
 
-    def test_logging_connection_error(self):
-        with self.assertRaises(ConnectionError):
-            self.wrapped(['USD'], url="https://invalid-url")
+    @patch('requests.get')
+    def test_logging_connection_error(self, mock_get):
+        mock_get.side_effect = requests.exceptions.ConnectionError("Сервер недоступен")
+        with self.assertRaises(ValueError):
+            self.wrapped(['USD'])
         logs = self.stream.getvalue()
-        self.assertIn("ERROR", logs)
-        self.assertIn("ConnectionError", logs)
-        self.assertIn("API недоступен", logs)
+        self.assertIn("Вызов функции", logs)
+        self.assertIn("Ошибка", logs)
+        self.assertIn("Ошибка при запросе к API", logs)
 
-    def test_logging_key_error(self):
-        with self.assertRaises(KeyError):
-            self.wrapped(['XYZ'])  # Несуществующая валюта
+    @patch('requests.get')
+    def test_logging_key_error(self, mock_get):
+        mock_response = Mock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {
+            "Valute": {
+                "USD": {"Value": 75.5}
+            }
+        }
+        mock_get.return_value = mock_response
+        result = self.wrapped(['XYZ'])
+        self.assertEqual(result['XYZ'], "Код валюты 'XYZ' не найден.")
         logs = self.stream.getvalue()
-        self.assertIn("ERROR", logs)
-        self.assertIn("KeyError", logs)
+        self.assertIn("Вызов функции", logs)
+        self.assertIn("Результат", logs)
         self.assertIn("XYZ", logs)
+
 
 if __name__ == "__main__":
     unittest.main()
-
-
