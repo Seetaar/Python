@@ -134,7 +134,23 @@ class TestGetCurrencies(unittest.TestCase):
         self.assertIn("USD", str(result))
         self.assertIsInstance(result['USD'], float)
 
+    def test_logging_connection_error(self):
+        with self.assertRaises(ConnectionError):
+            self.wrapped(['USD'], url="https://invalid-url")
+        logs = self.stream.getvalue()
+        self.assertIn("ERROR", logs)
+        self.assertIn("ConnectionError", logs)
+        self.assertIn("API недоступен", logs)
+
+    def test_logging_key_error(self):
+        with self.assertRaises(KeyError):
+            self.wrapped(['XYZ'])  # Несуществующая валюта
+        logs = self.stream.getvalue()
+        self.assertIn("ERROR", logs)
+        self.assertIn("KeyError", logs)
+        self.assertIn("XYZ", logs)
 
 if __name__ == "__main__":
     unittest.main()
+
 
