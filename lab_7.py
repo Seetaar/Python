@@ -112,6 +112,29 @@ class TestGetCurrencies(unittest.TestCase):
                 get_currencies(['USD'], url="https://www.cbr-xml-daily.1ru/daily_json.js", handle=fake_handle)
                 output = fake_handle.getvalue()
 
+    def test_json(self):
+        with self.assertRaises(ValueError) as cm:
+            get_currencies(['USD'], url="https://example.com")
+        self.assertIn("Некорректный JSON", str(cm.exception))
+
+    def setUp(self):
+        self.stream = io.StringIO()
+        @logger(handle=self.stream)
+        def wrapped_get_currencies(currency_codes, url=None):
+            if url:
+                return get_currencies(currency_codes, url)
+            return get_currencies(currency_codes)
+        self.wrapped = wrapped_get_currencies
+
+    def test_logging_success(self):
+        result = self.wrapped(['USD'])
+        logs = self.stream.getvalue()
+        self.assertIn("INFO: Вызов wrapped_get_currencies(['USD'])", logs)
+        self.assertIn("INFO: wrapped_get_currencies вернула", logs)
+        self.assertIn("USD", str(result))
+        self.assertIsInstance(result['USD'], float)
+
 
 if __name__ == "__main__":
     unittest.main()
+
